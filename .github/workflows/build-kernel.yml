@@ -31,9 +31,8 @@ jobs:
       run: |
         mkdir -p ~/toolchains
         cd ~/toolchains
-        curl -L https://codeberg.org/Karnak/aarch64-linux-android-4.9/archive/master.tar.gz \
-          | tar -xz
-        echo "PATH=$HOME/toolchains/bin:$PATH" >> $GITHUB_ENV
+        git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+        echo "PATH=$HOME/toolchains/aarch64-linux-android-4.9/bin:$PATH" >> $GITHUB_ENV
 
     - name: Build kernel
       run: |
