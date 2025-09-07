@@ -42,9 +42,11 @@ jobs:
         export CCACHE=ccache
         export PATH=$HOME/toolchains/aarch64-linux-android-4.9/bin:$PATH
 
-        # Workaround SSL fetch problems inside kernel make
+        # allow insecure SSL for anything the kernel build fetches
         export GIT_SSL_NO_VERIFY=1
-        export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+        export CURL_CA_BUNDLE=""
+        export WGETRC=/tmp/wgetrc
+        echo "check_certificate = off" > $WGETRC
 
         make exynos7880-a5y17lte_defconfig
         make -j$(nproc)
