@@ -18,7 +18,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential bc bison flex libssl-dev \
-            libncurses5-dev git cpio gzip xz-utils python3 curl
+            libncurses5-dev git cpio gzip xz-utils python3 curl ccache 
           # Make python point to python3
           sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 1
 
