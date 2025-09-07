@@ -1,0 +1,53 @@
+name: Build Samsung Exynos7880 Kernel (A5 2017, Android 8)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev \
+              libncurses5-dev git cpio gzip python2
+
+      - name: Download GCC 4.9 toolchain (AOSP)
+        run: |
+          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth=1 ~/aarch64-gcc
+          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 --depth=1 ~/arm-gcc
+
+      - name: Build kernel
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: ~/aarch64-gcc/bin/aarch64-linux-android-
+          CROSS_COMPILE_ARM32: ~/arm-gcc/bin/arm-linux-androideabi-
+        run: |
+          make exynos7880-a5y17lte_eur_defconfig
+          # Force-enable kallsyms
+          echo "CONFIG_KALLSYMS=y" >> .config
+          echo "CONFIG_KALLSYMS_ALL=y" >> .config
+          echo "CONFIG_KALLSYMS_BASE_RELATIVE=y" >> .config
+          make -j$(nproc)
+
+      - name: Repack boot.img
+        run: |
+          git clone https://github.com/topjohnwu/magiskboot --depth=1
+          cd magiskboot
+          make
+          cd ..
+          cp arch/arm64/boot/Image.gz-dtb ./kernel
+          ./magiskboot/magiskboot unpack boot.img
+          mv kernel ./kernel
+          ./magiskboot/magiskboot repack boot.img new-boot.img
+
+      - name: Upload boot.img
+        uses: actions/upload-artifact@v4
+        with:
+          name: new-boot-img
+          path: new-boot.img
