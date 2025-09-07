@@ -24,8 +24,8 @@ jobs:
       - name: Download AOSP Clang toolchain
         run: |
           mkdir -p ~/clang
-          curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r418792b.tar.gz -k
-          tar -xzf clang-r418792b.tar.gz -C ~/clang --strip-components=1
+          curl -L -k -o clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/clang-r383902.tar.gz
+          tar -xzf clang.tar.gz -C ~/clang --strip-components=1
 
       - name: Patch defconfig
         run: |
