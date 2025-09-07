@@ -1,8 +1,8 @@
 name: Android Kernel Build
 
 on:
-  workflow_dispatch: # run manually
-  push:              # run on push to repo
+  workflow_dispatch:
+  push:
     branches: [ main ]
 
 jobs:
@@ -25,7 +25,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y bc bison flex libssl-dev make ccache \
-          curl git zip unzip python3
+          build-essential libelf-dev pkg-config git zip unzip python3
 
     - name: Download GCC 4.9 toolchain
       run: |
@@ -34,6 +34,18 @@ jobs:
         git clone https://github.com/KudProject/aarch64-linux-android-4.9
         echo "PATH=$HOME/toolchains/aarch64-linux-android-4.9/bin:$PATH" >> $GITHUB_ENV
 
+    - name: Compile WireGuard module (offline)
+      run: |
+        git clone https://git.zx2c4.com/wireguard-linux-compat
+        git clone https://git.zx2c4.com/wireguard-tools
+        # compile kernel module
+        make -C wireguard-linux-compat/src -j$(nproc)
+        # optional: install to module directory
+        make -C wireguard-linux-compat/src INSTALL_MOD_PATH=$PWD/wireguard-modules install
+        # compile wg tool
+        make -C wireguard-tools/src -j$(nproc)
+        make -C wireguard-tools/src INSTALL_MOD_PATH=$PWD/wireguard-tools install
+
     - name: Build kernel
       run: |
         export ARCH=arm64
@@ -41,12 +53,6 @@ jobs:
         export CROSS_COMPILE=aarch64-linux-android-
         export CCACHE=ccache
         export PATH=$HOME/toolchains/aarch64-linux-android-4.9/bin:$PATH
-
-        # allow insecure SSL for anything the kernel build fetches
-        export GIT_SSL_NO_VERIFY=1
-        export CURL_CA_BUNDLE=""
-        export WGETRC=/tmp/wgetrc
-        echo "check_certificate = off" > $WGETRC
 
         make exynos7880-a5y17lte_defconfig
         make -j$(nproc)
@@ -62,18 +68,13 @@ jobs:
       run: |
         mkdir boot_repack && cd boot_repack
         cp ../boot.img .
-        curl -LO https://github.com/osm0sis/mkbootimg/archive/master.zip
-        unzip master.zip
-        cd mkbootimg-master
-        # unpack
+        git clone https://github.com/osm0sis/mkbootimg.git
+        cd mkbootimg
         python3 unpackbootimg.py --boot_img ../boot.img --out ./
-        # replace kernel
         cp ../../arch/arm64/boot/Image.gz-dtb ./kernel
-        # repack
         python3 mkbootimg.py --kernel ./kernel --ramdisk ./ramdisk.gz \
           --cmdline "$(cat ./cmdline)" --base $(cat ./base) \
-          --pagesize $(cat ./pagesize) --os_version $(cat ./os_version) \
-          --os_patch_level $(cat ./os_patch_level) \
+          --pagesize $(cat ./pagesize) \
           -o ../boot-repacked.img
         cd ../..
 
@@ -84,3 +85,5 @@ jobs:
         path: |
           AnyKernel3-flashable.zip
           boot_repack/boot-repacked.img
+          wireguard-modules
+          wireguard-tools
