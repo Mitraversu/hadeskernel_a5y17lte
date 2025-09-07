@@ -31,7 +31,7 @@ jobs:
       run: |
         mkdir -p ~/toolchains
         cd ~/toolchains
-        git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+        git clone https://github.com/KudProject/aarch64-linux-android-4.9
         echo "PATH=$HOME/toolchains/aarch64-linux-android-4.9/bin:$PATH" >> $GITHUB_ENV
 
     - name: Build kernel
@@ -40,7 +40,11 @@ jobs:
         export SUBARCH=arm64
         export CROSS_COMPILE=aarch64-linux-android-
         export CCACHE=ccache
-        export PATH=$HOME/toolchains/bin:$PATH
+        export PATH=$HOME/toolchains/aarch64-linux-android-4.9/bin:$PATH
+
+        # Workaround SSL fetch problems inside kernel make
+        export GIT_SSL_NO_VERIFY=1
+        export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
         make exynos7880-a5y17lte_defconfig
         make -j$(nproc)
