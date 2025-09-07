@@ -1,4 +1,4 @@
-name: Build Samsung Exynos7880 Kernel (A5 2017, Android 8, AOSP Clang)
+name: Build Samsung Exynos7880 Kernel (A5 2017, Android 8, GCC 15.2.0)
 
 on:
   workflow_dispatch:
@@ -12,77 +12,55 @@ jobs:
       - name: Checkout kernel source
         uses: actions/checkout@v4
 
-      # 2️⃣ Install dependencies
-      - name: Install build dependencies
+      # 2️⃣ Install build dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             build-essential bc bison flex libssl-dev \
-            libncurses-dev git cpio gzip xz-utils python3 curl
+            libncurses5-dev git cpio gzip xz-utils python3 curl
+          # Make python point to python3
           sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 1
 
-      # 3️⃣ Cache and extract AOSP Clang
-      - name: Cache Clang toolchain
-        uses: actions/cache@v4
-        with:
-          path: ~/clang
-          key: clang-r383902
-      - name: Download and extract AOSP Clang toolchain
+      # 3️⃣ Download and extract GCC 15.2.0
+      - name: Download and extract GCC 15.2.0 toolchain
         run: |
-          if [ ! -d ~/clang ]; then
-            mkdir -p ~/clang
-            curl -L -k -o clang-r383902.tar.gz https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/clang-r383902/clang-r383902.tar.gz
-            tar -xzf clang-r383902.tar.gz -C ~/clang --strip-components=1
-          fi
-          ls ~/clang/bin # Verify toolchain
+          curl -L -k -o gcc-15.2.0.tar.gz https://ftp.mpi-inf.mpg.de/mirrors/gnu/mirror/gcc.gnu.org/pub/gcc/releases/gcc-15.2.0/gcc-15.2.0.tar.gz
+          mkdir -p ~/gcc
+          tar -xzf gcc-15.2.0.tar.gz -C ~/gcc --strip-components=1
 
       # 4️⃣ Patch defconfig to disable WireGuard
-      - name: Configure kernel options
-        env:
-          ARCH: arm64
+      - name: Disable WireGuard in defconfig
         run: |
-          make exynos7880-a5y17lte_eur_defconfig
-          ./scripts/config --disable CONFIG_WIREGUARD
-          ./scripts/config --enable CONFIG_KALLSYMS
-          ./scripts/config --enable CONFIG_KALLSYMS_ALL
-          ./scripts/config --enable CONFIG_KALLSYMS_BASE_RELATIVE
+          sed -i '/CONFIG_WIREGUARD/d' arch/arm64/configs/exynos7880-a5y17lte_eur_defconfig
 
-      # 5️⃣ Build kernel
+      # 5️⃣ Build kernel with KALLSYMS enabled
       - name: Build kernel
         env:
           ARCH: arm64
         run: |
-          make -j4 CC=~/clang/bin/clang CROSS_COMPILE=~/clang/bin/aarch64-linux-android-
-          if [ ! -f arch/arm64/boot/Image.gz-dtb ]; then
-            echo "Kernel build failed: Image.gz-dtb not found"
-            exit 1
-          fi
+          make exynos7880-a5y17lte_eur_defconfig
+          # Enable KALLSYMS
+          echo "CONFIG_KALLSYMS=y" >> .config
+          echo "CONFIG_KALLSYMS_ALL=y" >> .config
+          echo "CONFIG_KALLSYMS_BASE_RELATIVE=y" >> .config
+          make -j$(nproc) CC=~/gcc/bin/gcc CROSS_COMPILE=~/gcc/bin/aarch64-linux-android-
 
-      # 6️⃣ Download stock boot.img (example placeholder)
-      - name: Download stock boot.img
-        run: |
-          curl -L -o boot.img <URL_TO_STOCK_BOOT_IMG> # Replace with actual URL
-          if [ ! -f boot.img ]; then
-            echo "Error: boot.img not found"
-            exit 1
-          fi
-
-      # 7️⃣ Repack boot.img
+      # 6️⃣ Repack boot.img
       - name: Repack boot.img with Magiskboot
         run: |
           git clone https://github.com/topjohnwu/magiskboot --depth=1
           cd magiskboot
           make
           cd ..
+          # Copy compiled kernel
           cp arch/arm64/boot/Image.gz-dtb ./kernel
+          # Unpack stock boot.img and repack
           ./magiskboot/magiskboot unpack boot.img
+          mv kernel ./kernel
           ./magiskboot/magiskboot repack boot.img new-boot.img
-          if [ ! -f new-boot.img ]; then
-            echo "Error: new-boot.img not created"
-            exit 1
-          fi
 
-      # 8️⃣ Upload artifact
+      # 7️⃣ Upload artifact
       - name: Upload new-boot.img
         uses: actions/upload-artifact@v4
         with:
