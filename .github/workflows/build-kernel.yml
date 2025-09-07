@@ -1,4 +1,4 @@
-name: Build Samsung Exynos7880 Kernel (A5 2017, Android 8)
+name: Build Samsung Exynos7880 Kernel (A5 2017, Android 8, AOSP Clang)
 
 on:
   workflow_dispatch:
@@ -16,41 +16,45 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential bc bison flex libssl-dev \
-            libncurses5-dev git cpio gzip xz-utils curl ccache python3 ca-certificates
+            libncurses5-dev git cpio gzip xz-utils python3
 
           # Make python point to python3
           sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 1
 
-      - name: Download GCC toolchain (AOSP)
+      - name: Download AOSP Clang toolchain
         run: |
-          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth=1 ~/aarch64-gcc || true
-          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 --depth=1 ~/arm-gcc || true
+          mkdir -p ~/clang
+          curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r418792b.tar.gz -k
+          tar -xzf clang-r418792b.tar.gz -C ~/clang --strip-components=1
+
+      - name: Patch defconfig
+        run: |
+          # Remove missing WireGuard module to avoid Kconfig error
+          sed -i '/CONFIG_WIREGUARD/d' arch/arm64/configs/exynos7880-a5y17lte_eur_defconfig
 
       - name: Build kernel
         env:
           ARCH: arm64
-          CROSS_COMPILE: ~/aarch64-gcc/bin/aarch64-linux-android-
-          CROSS_COMPILE_ARM32: ~/arm-gcc/bin/arm-linux-androideabi-
+          CLANG_PREFIX: ~/clang/bin/clang
+          CROSS_COMPILE: ""
         run: |
           make exynos7880-a5y17lte_eur_defconfig
           # Enable KALLSYMS
           echo "CONFIG_KALLSYMS=y" >> .config
           echo "CONFIG_KALLSYMS_ALL=y" >> .config
           echo "CONFIG_KALLSYMS_BASE_RELATIVE=y" >> .config
-          make -j$(nproc)
+          make -j$(nproc) CC=~/clang/bin/clang \
+            CROSS_COMPILE= CLANG_TRIPLE=aarch64-linux-gnu-
 
       - name: Repack boot.img
         run: |
-          # Build magiskboot
           git clone https://github.com/topjohnwu/magiskboot --depth=1
           cd magiskboot
           make
           cd ..
           
-          # Copy compiled kernel
           cp arch/arm64/boot/Image.gz-dtb ./kernel
 
-          # Unpack stock boot.img and repack
           ./magiskboot/magiskboot unpack boot.img
           mv kernel ./kernel
           ./magiskboot/magiskboot repack boot.img new-boot.img
