@@ -1,68 +1,81 @@
-name: Build Samsung Exynos7880 Kernel (A5 2017, Android 8, GCC 15.2.0)
+name: Android Kernel Build
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # run manually
+  push:              # run on push to repo
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout kernel source
-      - name: Checkout kernel source
-        uses: actions/checkout@v4
+    - name: Checkout source
+      uses: actions/checkout@v4
 
-      # 2️⃣ Install build dependencies
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential bc bison flex libssl-dev \
-            libncurses5-dev git cpio gzip xz-utils python3 curl ccache 
-          # Make python point to python3
-          sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 1
+    - name: Set up ccache
+      uses: actions/cache@v3
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-ccache-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-
 
-      # 3️⃣ Download and extract GCC 15.2.0
-      - name: Download and extract GCC 15.2.0 toolchain
-        run: |
-          curl -L -k -o gcc-15.2.0.tar.gz https://ftp.mpi-inf.mpg.de/mirrors/gnu/mirror/gcc.gnu.org/pub/gcc/releases/gcc-15.2.0/gcc-15.2.0.tar.gz
-          mkdir -p ~/gcc
-          tar -xzf gcc-15.2.0.tar.gz -C ~/gcc --strip-components=1
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison flex libssl-dev make ccache \
+          curl git zip unzip python3
 
-      # 4️⃣ Patch defconfig to disable WireGuard
-      - name: Disable WireGuard in defconfig
-        run: |
-          sed -i '/CONFIG_WIREGUARD/d' arch/arm64/configs/exynos7880-a5y17lte_eur_defconfig
+    - name: Download GCC 4.9 toolchain
+      run: |
+        mkdir -p ~/toolchains
+        cd ~/toolchains
+        curl -L https://codeberg.org/Karnak/aarch64-linux-android-4.9/archive/master.tar.gz \
+          | tar -xz
+        echo "PATH=$HOME/toolchains/bin:$PATH" >> $GITHUB_ENV
 
-      # 5️⃣ Build kernel with KALLSYMS enabled
-      - name: Build kernel
-        env:
-          ARCH: arm64
-        run: |
-          make exynos7880-a5y17lte_eur_defconfig
-          # Enable KALLSYMS
-          echo "CONFIG_KALLSYMS=y" >> .config
-          echo "CONFIG_KALLSYMS_ALL=y" >> .config
-          echo "CONFIG_KALLSYMS_BASE_RELATIVE=y" >> .config
-          make -j$(nproc) CC=~/gcc/bin/gcc CROSS_COMPILE=~/gcc/bin/aarch64-linux-android-
+    - name: Build kernel
+      run: |
+        export ARCH=arm64
+        export SUBARCH=arm64
+        export CROSS_COMPILE=aarch64-linux-android-
+        export CCACHE=ccache
+        export PATH=$HOME/toolchains/bin:$PATH
 
-      # 6️⃣ Repack boot.img
-      - name: Repack boot.img with Magiskboot
-        run: |
-          git clone https://github.com/topjohnwu/magiskboot --depth=1
-          cd magiskboot
-          make
-          cd ..
-          # Copy compiled kernel
-          cp arch/arm64/boot/Image.gz-dtb ./kernel
-          # Unpack stock boot.img and repack
-          ./magiskboot/magiskboot unpack boot.img
-          mv kernel ./kernel
-          ./magiskboot/magiskboot repack boot.img new-boot.img
+        make exynos7880-a5y17lte_defconfig
+        make -j$(nproc)
 
-      # 7️⃣ Upload artifact
-      - name: Upload new-boot.img
-        uses: actions/upload-artifact@v4
-        with:
-          name: new-boot-img
-          path: new-boot.img
+    - name: Prepare AnyKernel3
+      run: |
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
+        cp arch/arm64/boot/Image.gz-dtb AnyKernel3/
+        cd AnyKernel3
+        zip -r9 ../AnyKernel3-flashable.zip *
+
+    - name: Repack boot.img
+      run: |
+        mkdir boot_repack && cd boot_repack
+        cp ../boot.img .
+        curl -LO https://github.com/osm0sis/mkbootimg/archive/master.zip
+        unzip master.zip
+        cd mkbootimg-master
+        # unpack
+        python3 unpackbootimg.py --boot_img ../boot.img --out ./
+        # replace kernel
+        cp ../../arch/arm64/boot/Image.gz-dtb ./kernel
+        # repack
+        python3 mkbootimg.py --kernel ./kernel --ramdisk ./ramdisk.gz \
+          --cmdline "$(cat ./cmdline)" --base $(cat ./base) \
+          --pagesize $(cat ./pagesize) --os_version $(cat ./os_version) \
+          --os_patch_level $(cat ./os_patch_level) \
+          -o ../boot-repacked.img
+        cd ../..
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel-build
+        path: |
+          AnyKernel3-flashable.zip
+          boot_repack/boot-repacked.img
