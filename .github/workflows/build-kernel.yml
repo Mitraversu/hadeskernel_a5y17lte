@@ -14,13 +14,17 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev \
-              libncurses5-dev git cpio gzip python3
+          sudo apt-get install -y \
+            build-essential bc bison flex libssl-dev \
+            libncurses5-dev git cpio gzip xz-utils curl ccache python3 ca-certificates
 
-      - name: Download GCC 4.9 toolchain (AOSP)
+          # Make python point to python3
+          sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 1
+
+      - name: Download GCC toolchain (AOSP)
         run: |
-          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth=1 ~/aarch64-gcc
-          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 --depth=1 ~/arm-gcc
+          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 --depth=1 ~/aarch64-gcc || true
+          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 --depth=1 ~/arm-gcc || true
 
       - name: Build kernel
         env:
@@ -29,7 +33,7 @@ jobs:
           CROSS_COMPILE_ARM32: ~/arm-gcc/bin/arm-linux-androideabi-
         run: |
           make exynos7880-a5y17lte_eur_defconfig
-          # Force-enable kallsyms
+          # Enable KALLSYMS
           echo "CONFIG_KALLSYMS=y" >> .config
           echo "CONFIG_KALLSYMS_ALL=y" >> .config
           echo "CONFIG_KALLSYMS_BASE_RELATIVE=y" >> .config
@@ -37,11 +41,16 @@ jobs:
 
       - name: Repack boot.img
         run: |
+          # Build magiskboot
           git clone https://github.com/topjohnwu/magiskboot --depth=1
           cd magiskboot
           make
           cd ..
+          
+          # Copy compiled kernel
           cp arch/arm64/boot/Image.gz-dtb ./kernel
+
+          # Unpack stock boot.img and repack
           ./magiskboot/magiskboot unpack boot.img
           mv kernel ./kernel
           ./magiskboot/magiskboot repack boot.img new-boot.img
